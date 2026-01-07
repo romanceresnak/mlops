@@ -1,0 +1,32 @@
+name: Deploy Infrastructure - Production
+
+on: 
+  workflow_dispatch:
+
+jobs:
+  terraform-deploy:
+    uses: ./.github/workflows/terraform-infrastructure-deploy.yml
+    with:
+      TFAction: 'apply'
+      dply_environment: 'prod'  
+      location: 'westeurope'
+      namespace: 'mynamespace'
+      postfix: 'prod'
+      environment: 'production'
+      enable_aml_computecluster: true
+      enable_monitoring: true
+      terraform_version: '1.5.0'
+      terraform_workingdir: './infrastructure'
+      terraform_st_location: 'westeurope'
+      terraform_st_storage_account: 'mystorageaccount'
+      terraform_st_resource_group: 'my-tf-state-rg'
+      terraform_st_container_name: 'tfstate'
+      terraform_st_key: 'terraform.tfstate'
+      terraform_plan_location: 'westeurope'
+      terraform_plan_vnet: "TBD"
+    secrets:
+      azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
+      clientId: ${{ secrets.ARM_CLIENT_ID }}
+      clientSecret: ${{ secrets.ARM_CLIENT_SECRET }}
+      subscriptionId: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      tenantId: ${{ secrets.ARM_TENANT_ID }}

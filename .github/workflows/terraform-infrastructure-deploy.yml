@@ -1,42 +1,135 @@
-name: tf-gha-deploy-infra.yml
+name: Terraform Infrastructure Deploy
  
 on: 
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      TFAction:
+        required: true
+        type: string
+      dply_environment:
+        required: true
+        type: string
+      location:
+        required: true
+        type: string
+      namespace:
+        required: true
+        type: string
+      postfix:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      enable_aml_computecluster:
+        required: true
+        type: boolean
+      enable_monitoring:
+        required: true
+        type: boolean
+      terraform_version:
+        required: true
+        type: string
+      terraform_workingdir:
+        required: true
+        type: string
+      terraform_st_location:
+        required: true
+        type: string
+      terraform_st_storage_account:
+        required: true
+        type: string
+      terraform_st_resource_group:
+        required: true
+        type: string
+      terraform_st_container_name:
+        required: true
+        type: string
+      terraform_st_key:
+        required: true
+        type: string
+      terraform_plan_location:
+        required: true
+        type: string
+      terraform_plan_vnet:
+        required: true
+        type: string
+    secrets:
+      azure_creds:
+        required: true
+      clientId:
+        required: true
+      clientSecret:
+        required: true
+      subscriptionId:
+        required: true
+      tenantId:
+        required: true
 
 env:
   config_env: 'none'
 
 jobs:
-  test-terraform-state-deployment:
-    uses: romanceresnak/mlops/.github/workflows/terraform-infrastructure-deploy.yml@main
-    with:
-      TFAction: 'apply'
-      dply_environment: 'prod'  
-      location: 'westeurope'
-      namespace: 'mynamespace'
-      postfix: 'prod'
-      environment: 'production'
-      enable_aml_computecluster: true
-      enable_monitoring: true
-      terraform_version: '1.5.0'
-      terraform_workingdir: './infrastructure'
-      terraform_st_location: 'westeurope'
-      terraform_st_storage_account: 'mystorageaccount'
-      terraform_st_resource_group: 'my-tf-state-rg'
-      terraform_st_container_name: 'tfstate'
-      terraform_st_key: 'terraform.tfstate'
-      terraform_plan_location: 'westeurope'
-      terraform_plan_vnet: "TBD"
-    secrets:
-      azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
-      clientId: ${{ secrets.ARM_CLIENT_ID }}
-      clientSecret: ${{ secrets.ARM_CLIENT_SECRET }}
-      subscriptionId: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      tenantId: ${{ secrets.ARM_TENANT_ID }}
-
-  deploy-azureml-resources:
+  deploy-terraform:
     runs-on: ubuntu-latest
     steps:
-    - id: deploy-aml-workspace
-      name: deploy-aml-workspace
-      run: echo "OK"
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ inputs.terraform_version }}
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.azure_creds }}
+
+    - name: Terraform Init
+      working-directory: ${{ inputs.terraform_workingdir }}
+      run: |
+        terraform init \
+          -backend-config="resource_group_name=${{ inputs.terraform_st_resource_group }}" \
+          -backend-config="storage_account_name=${{ inputs.terraform_st_storage_account }}" \
+          -backend-config="container_name=${{ inputs.terraform_st_container_name }}" \
+          -backend-config="key=${{ inputs.terraform_st_key }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
+
+    - name: Terraform Plan
+      if: inputs.TFAction == 'plan'
+      working-directory: ${{ inputs.terraform_workingdir }}
+      run: |
+        terraform plan \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="env=${{ inputs.environment }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
+
+    - name: Terraform Apply
+      if: inputs.TFAction == 'apply'
+      working-directory: ${{ inputs.terraform_workingdir }}
+      run: |
+        terraform apply -auto-approve \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="env=${{ inputs.environment }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
