@@ -142,7 +142,8 @@ jobs:
           -var="env=${{ inputs.environment }}" \
           -var="location=${{ inputs.location }}" \
           -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
+          -var="client_secret=${{ secrets.clientSecret }}"
         
         # Restore original provider.tf
         rm provider-temp.tf
@@ -174,7 +175,8 @@ jobs:
           -var="postfix=${{ inputs.postfix }}" \
           -var="env=${{ inputs.environment }}" \
           -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
+          -var="client_secret=${{ secrets.clientSecret }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.clientId }}
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
@@ -191,7 +193,8 @@ jobs:
           -var="postfix=${{ inputs.postfix }}" \
           -var="env=${{ inputs.environment }}" \
           -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
+          -var="client_secret=${{ secrets.clientSecret }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.clientId }}
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
