@@ -1,5 +1,5 @@
 name: Terraform Infrastructure Deploy
- 
+
 on: 
   workflow_call:
     inputs:
@@ -48,12 +48,6 @@ on:
       terraform_st_key:
         required: true
         type: string
-      terraform_plan_location:
-        required: true
-        type: string
-      terraform_plan_vnet:
-        required: true
-        type: string
     secrets:
       azure_creds:
         required: true
@@ -66,105 +60,50 @@ on:
       tenantId:
         required: true
 
-env:
-  config_env: 'none'
-
 jobs:
   deploy-terraform:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.dply_environment }}
+    
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ inputs.terraform_version }}
 
     - name: Azure Login
-      uses: azure/login@v1
+      uses: azure/login@v2
       with:
         creds: ${{ secrets.azure_creds }}
 
-    - name: Set Azure Subscription
-      env:
-        SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+    - name: Setup Backend Storage
       run: |
-        echo "Setting subscription..."
-        az account set --subscription "$SUBSCRIPTION_ID"
-        echo "Current subscription:"
-        az account show
-
-    - name: Create Backend Infrastructure with Azure CLI
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-      run: |
-        echo "Creating backend infrastructure..."
+        # Create resource group if it doesn't exist
+        az group create \
+          --name ${{ inputs.terraform_st_resource_group }} \
+          --location ${{ inputs.terraform_st_location }} || true
         
-        # Ensure we're using the correct subscription
-        az account set --subscription "$ARM_SUBSCRIPTION_ID"
+        # Create storage account if it doesn't exist
+        az storage account create \
+          --name ${{ inputs.terraform_st_storage_account }} \
+          --resource-group ${{ inputs.terraform_st_resource_group }} \
+          --location ${{ inputs.terraform_st_location }} \
+          --sku Standard_LRS \
+          --allow-blob-public-access false || true
         
-        # Check if resource group exists
-        if ! az group show --name ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
-          echo "Creating resource group: ${{ inputs.terraform_st_resource_group }}"
-          az group create \
-            --name ${{ inputs.terraform_st_resource_group }} \
-            --location ${{ inputs.terraform_st_location }}
-        else
-          echo "Resource group already exists: ${{ inputs.terraform_st_resource_group }}"
-        fi
-        
-        # Check if storage account exists in our resource group
-        if az storage account show --name ${{ inputs.terraform_st_storage_account }} --resource-group ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
-          echo "Storage account already exists in our resource group: ${{ inputs.terraform_st_storage_account }}"
-        else
-          # Check if storage account name is taken globally
-          if az storage account check-name --name ${{ inputs.terraform_st_storage_account }} --query nameAvailable -o tsv | grep -q "false"; then
-            echo "ERROR: Storage account name '${{ inputs.terraform_st_storage_account }}' is already taken globally."
-            echo "Please choose a different storage account name in your configuration."
-            exit 1
-          else
-            echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
-            az storage account create \
-              --name ${{ inputs.terraform_st_storage_account }} \
-              --resource-group ${{ inputs.terraform_st_resource_group }} \
-              --location ${{ inputs.terraform_st_location }} \
-              --sku Standard_LRS \
-              --kind StorageV2 \
-              --allow-blob-public-access false \
-              --min-tls-version TLS1_2
-            
-            # Wait for storage account to be ready
-            echo "Waiting for storage account to be ready..."
-            az storage account show \
-              --name ${{ inputs.terraform_st_storage_account }} \
-              --resource-group ${{ inputs.terraform_st_resource_group }} \
-              --query provisioningState
-          fi
-        fi
-        
-        # Get storage account key
-        echo "Getting storage account key..."
+        # Get storage key and create container
         STORAGE_KEY=$(az storage account keys list \
           --resource-group ${{ inputs.terraform_st_resource_group }} \
           --account-name ${{ inputs.terraform_st_storage_account }} \
           --query '[0].value' -o tsv)
         
-        # Check if container exists
-        if ! az storage container show \
+        az storage container create \
           --name ${{ inputs.terraform_st_container_name }} \
           --account-name ${{ inputs.terraform_st_storage_account }} \
-          --account-key "$STORAGE_KEY" &>/dev/null; then
-          echo "Creating container: ${{ inputs.terraform_st_container_name }}"
-          az storage container create \
-            --name ${{ inputs.terraform_st_container_name }} \
-            --account-name ${{ inputs.terraform_st_storage_account }} \
-            --account-key "$STORAGE_KEY"
-        else
-          echo "Container already exists: ${{ inputs.terraform_st_container_name }}"
-        fi
-        
-        echo "Backend infrastructure ready!"
+          --account-key "$STORAGE_KEY" || true
 
     - name: Terraform Init
       working-directory: ${{ inputs.terraform_workingdir }}
@@ -179,13 +118,20 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
-    
-    - name: Force Unlock State (if needed)
-      if: failure()
+
+    - name: Import or Refresh State
+      if: inputs.TFAction == 'apply'
       working-directory: ${{ inputs.terraform_workingdir }}
       run: |
-        echo "Attempting to force unlock state..."
-        terraform force-unlock -force 4a417e75-dc4c-1ea9-abd9-17d0f9e9515e || true
+        # Try to refresh state first
+        terraform refresh \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="environment=${{ inputs.environment }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
+          -var="client_secret=${{ secrets.clientSecret }}" || true
       env:
         ARM_CLIENT_ID: ${{ secrets.clientId }}
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
@@ -209,60 +155,6 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
-
-    - name: Clean Up Existing Resources
-      if: inputs.TFAction == 'apply'
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-      run: |
-        echo "Checking for existing resources that might conflict..."
-        
-        # Set subscription
-        az account set --subscription "$ARM_SUBSCRIPTION_ID"
-        
-        # Check and purge Key Vault if it exists in soft-deleted state
-        KV_NAME="kv-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
-        echo "Checking for soft-deleted Key Vault: $KV_NAME"
-        
-        if az keyvault show-deleted --name "$KV_NAME" &>/dev/null; then
-          echo "Found soft-deleted Key Vault, purging it..."
-          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
-          echo "Key Vault purged"
-        fi
-        
-        # Check if Key Vault exists in active state
-        if az keyvault show --name "$KV_NAME" &>/dev/null; then
-          echo "Found active Key Vault, deleting it..."
-          az keyvault delete --name "$KV_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
-          sleep 10
-          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
-          echo "Key Vault deleted and purged"
-        fi
-        
-        # Check and delete Storage Account if it exists
-        ST_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
-        echo "Checking for Storage Account: $ST_NAME"
-        
-        if az storage account show --name "$ST_NAME" &>/dev/null; then
-          echo "Found existing Storage Account, deleting it..."
-          az storage account delete --name "$ST_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}" --yes
-          echo "Storage Account deleted"
-        fi
-      continue-on-error: true
-
-    - name: Force Unlock Before Apply
-      if: inputs.TFAction == 'apply'
-      working-directory: ${{ inputs.terraform_workingdir }}
-      run: |
-        echo "Checking for existing locks and removing them..."
-        # Force unlock with the known lock ID
-        terraform force-unlock -force 4a417e75-dc4c-1ea9-abd9-17d0f9e9515e || true
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
-      continue-on-error: true
 
     - name: Terraform Apply
       if: inputs.TFAction == 'apply'
