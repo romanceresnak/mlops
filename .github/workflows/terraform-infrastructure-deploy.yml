@@ -210,6 +210,46 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
 
+    - name: Clean Up Existing Resources
+      if: inputs.TFAction == 'apply'
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+      run: |
+        echo "Checking for existing resources that might conflict..."
+        
+        # Set subscription
+        az account set --subscription "$ARM_SUBSCRIPTION_ID"
+        
+        # Check and purge Key Vault if it exists in soft-deleted state
+        KV_NAME="kv-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        echo "Checking for soft-deleted Key Vault: $KV_NAME"
+        
+        if az keyvault show-deleted --name "$KV_NAME" &>/dev/null; then
+          echo "Found soft-deleted Key Vault, purging it..."
+          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
+          echo "Key Vault purged"
+        fi
+        
+        # Check if Key Vault exists in active state
+        if az keyvault show --name "$KV_NAME" &>/dev/null; then
+          echo "Found active Key Vault, deleting it..."
+          az keyvault delete --name "$KV_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+          sleep 10
+          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
+          echo "Key Vault deleted and purged"
+        fi
+        
+        # Check and delete Storage Account if it exists
+        ST_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
+        echo "Checking for Storage Account: $ST_NAME"
+        
+        if az storage account show --name "$ST_NAME" &>/dev/null; then
+          echo "Found existing Storage Account, deleting it..."
+          az storage account delete --name "$ST_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}" --yes
+          echo "Storage Account deleted"
+        fi
+      continue-on-error: true
+
     - name: Force Unlock Before Apply
       if: inputs.TFAction == 'apply'
       working-directory: ${{ inputs.terraform_workingdir }}
