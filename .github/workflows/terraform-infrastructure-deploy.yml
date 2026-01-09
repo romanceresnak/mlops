@@ -95,61 +95,69 @@ jobs:
         echo "Current subscription:"
         az account show
 
-    - name: Create Backend Infrastructure with Terraform
-      working-directory: ${{ inputs.terraform_workingdir }}
+    - name: Create Backend Infrastructure with Azure CLI
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
       run: |
-        echo "Creating backend infrastructure with Terraform..."
+        echo "Creating backend infrastructure..."
         
-        # Temporarily rename provider.tf to disable backend configuration
-        mv provider.tf provider.tf.bak
+        # Ensure we're using the correct subscription
+        az account set --subscription "$ARM_SUBSCRIPTION_ID"
         
-        # Create temporary provider without backend
-        cat > provider-temp.tf << EOF
-        terraform {
-          required_providers {
-            azurerm = {
-              version = "~> 4.0"
-            }
-          }
-        }
+        # Check if resource group exists
+        if ! az group show --name ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
+          echo "Creating resource group: ${{ inputs.terraform_st_resource_group }}"
+          az group create \
+            --name ${{ inputs.terraform_st_resource_group }} \
+            --location ${{ inputs.terraform_st_location }}
+        else
+          echo "Resource group already exists: ${{ inputs.terraform_st_resource_group }}"
+        fi
         
-        provider "azurerm" {
-          features {}
-        }
+        # Check if storage account exists
+        if ! az storage account show --name ${{ inputs.terraform_st_storage_account }} --resource-group ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
+          echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
+          az storage account create \
+            --name ${{ inputs.terraform_st_storage_account }} \
+            --resource-group ${{ inputs.terraform_st_resource_group }} \
+            --location ${{ inputs.terraform_st_location }} \
+            --sku Standard_LRS \
+            --kind StorageV2 \
+            --allow-blob-public-access false \
+            --min-tls-version TLS1_2
+          
+          # Wait for storage account to be ready
+          echo "Waiting for storage account to be ready..."
+          az storage account show \
+            --name ${{ inputs.terraform_st_storage_account }} \
+            --resource-group ${{ inputs.terraform_st_resource_group }} \
+            --query provisioningState
+        else
+          echo "Storage account already exists: ${{ inputs.terraform_st_storage_account }}"
+        fi
         
-        data "azurerm_client_config" "current" {}
-        EOF
+        # Get storage account key
+        echo "Getting storage account key..."
+        STORAGE_KEY=$(az storage account keys list \
+          --resource-group ${{ inputs.terraform_st_resource_group }} \
+          --account-name ${{ inputs.terraform_st_storage_account }} \
+          --query '[0].value' -o tsv)
         
-        # Initialize Terraform without backend
-        terraform init
+        # Check if container exists
+        if ! az storage container show \
+          --name ${{ inputs.terraform_st_container_name }} \
+          --account-name ${{ inputs.terraform_st_storage_account }} \
+          --account-key "$STORAGE_KEY" &>/dev/null; then
+          echo "Creating container: ${{ inputs.terraform_st_container_name }}"
+          az storage container create \
+            --name ${{ inputs.terraform_st_container_name }} \
+            --account-name ${{ inputs.terraform_st_storage_account }} \
+            --account-key "$STORAGE_KEY"
+        else
+          echo "Container already exists: ${{ inputs.terraform_st_container_name }}"
+        fi
         
-        # Apply only backend resources
-        terraform apply -auto-approve \
-          -target=azurerm_resource_group.tfstate \
-          -target=azurerm_storage_account.tfstate \
-          -target=azurerm_storage_container.tfstate \
-          -var="terraform_st_resource_group=${{ inputs.terraform_st_resource_group }}" \
-          -var="terraform_st_location=${{ inputs.terraform_st_location }}" \
-          -var="terraform_st_storage_account=${{ inputs.terraform_st_storage_account }}" \
-          -var="terraform_st_container_name=${{ inputs.terraform_st_container_name }}" \
-          -var="prefix=${{ inputs.namespace }}" \
-          -var="postfix=${{ inputs.postfix }}" \
-          -var="environment=${{ inputs.environment }}" \
-          -var="location=${{ inputs.location }}" \
-          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
-          -var="client_secret=${{ secrets.clientSecret }}"
-        
-        # Restore original provider.tf
-        rm provider-temp.tf
-        mv provider.tf.bak provider.tf
-        
-        echo "Backend infrastructure created successfully"
+        echo "Backend infrastructure ready!"
 
     - name: Terraform Init
       working-directory: ${{ inputs.terraform_workingdir }}
