@@ -48,6 +48,12 @@ on:
       terraform_st_key:
         required: true
         type: string
+      terraform_plan_location:
+        required: true
+        type: string
+      terraform_plan_vnet:
+        required: true
+        type: string
     secrets:
       azure_creds:
         required: true
