@@ -105,10 +105,30 @@ jobs:
       run: |
         echo "Creating backend infrastructure with Terraform..."
         
-        # Initialize Terraform without backend (local state)
-        terraform init -backend=false
+        # Temporarily rename provider.tf to disable backend configuration
+        mv provider.tf provider.tf.bak
         
-        # Apply backend.tf to create storage account
+        # Create temporary provider without backend
+        cat > provider-temp.tf << EOF
+        terraform {
+          required_providers {
+            azurerm = {
+              version = "~> 4.0"
+            }
+          }
+        }
+        
+        provider "azurerm" {
+          features {}
+        }
+        
+        data "azurerm_client_config" "current" {}
+        EOF
+        
+        # Initialize Terraform without backend
+        terraform init
+        
+        # Apply only backend resources
         terraform apply -auto-approve \
           -target=azurerm_resource_group.tfstate \
           -target=azurerm_storage_account.tfstate \
@@ -116,7 +136,17 @@ jobs:
           -var="terraform_st_resource_group=${{ inputs.terraform_st_resource_group }}" \
           -var="terraform_st_location=${{ inputs.terraform_st_location }}" \
           -var="terraform_st_storage_account=${{ inputs.terraform_st_storage_account }}" \
-          -var="terraform_st_container_name=${{ inputs.terraform_st_container_name }}"
+          -var="terraform_st_container_name=${{ inputs.terraform_st_container_name }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="env=${{ inputs.environment }}" \
+          -var="location=${{ inputs.location }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}"
+        
+        # Restore original provider.tf
+        rm provider-temp.tf
+        mv provider.tf.bak provider.tf
         
         echo "Backend infrastructure created successfully"
 
