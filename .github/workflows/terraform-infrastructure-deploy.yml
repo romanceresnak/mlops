@@ -114,26 +114,33 @@ jobs:
           echo "Resource group already exists: ${{ inputs.terraform_st_resource_group }}"
         fi
         
-        # Check if storage account exists
-        if ! az storage account show --name ${{ inputs.terraform_st_storage_account }} --resource-group ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
-          echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
-          az storage account create \
-            --name ${{ inputs.terraform_st_storage_account }} \
-            --resource-group ${{ inputs.terraform_st_resource_group }} \
-            --location ${{ inputs.terraform_st_location }} \
-            --sku Standard_LRS \
-            --kind StorageV2 \
-            --allow-blob-public-access false \
-            --min-tls-version TLS1_2
-          
-          # Wait for storage account to be ready
-          echo "Waiting for storage account to be ready..."
-          az storage account show \
-            --name ${{ inputs.terraform_st_storage_account }} \
-            --resource-group ${{ inputs.terraform_st_resource_group }} \
-            --query provisioningState
+        # Check if storage account exists in our resource group
+        if az storage account show --name ${{ inputs.terraform_st_storage_account }} --resource-group ${{ inputs.terraform_st_resource_group }} &>/dev/null; then
+          echo "Storage account already exists in our resource group: ${{ inputs.terraform_st_storage_account }}"
         else
-          echo "Storage account already exists: ${{ inputs.terraform_st_storage_account }}"
+          # Check if storage account name is taken globally
+          if az storage account check-name --name ${{ inputs.terraform_st_storage_account }} --query nameAvailable -o tsv | grep -q "false"; then
+            echo "ERROR: Storage account name '${{ inputs.terraform_st_storage_account }}' is already taken globally."
+            echo "Please choose a different storage account name in your configuration."
+            exit 1
+          else
+            echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
+            az storage account create \
+              --name ${{ inputs.terraform_st_storage_account }} \
+              --resource-group ${{ inputs.terraform_st_resource_group }} \
+              --location ${{ inputs.terraform_st_location }} \
+              --sku Standard_LRS \
+              --kind StorageV2 \
+              --allow-blob-public-access false \
+              --min-tls-version TLS1_2
+            
+            # Wait for storage account to be ready
+            echo "Waiting for storage account to be ready..."
+            az storage account show \
+              --name ${{ inputs.terraform_st_storage_account }} \
+              --resource-group ${{ inputs.terraform_st_resource_group }} \
+              --query provisioningState
+          fi
         fi
         
         # Get storage account key
