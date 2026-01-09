@@ -97,12 +97,26 @@ jobs:
 
     - name: Create Terraform State Storage
       env:
-        SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        AZURE_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
       run: |
-        # Set default subscription
-        az account set --subscription "$SUBSCRIPTION_ID"
-        az configure --defaults group=${{ inputs.terraform_st_resource_group }} location=${{ inputs.terraform_st_location }}
+        # Debug - show current account info
+        echo "Current Azure account:"
+        az account show
+        
+        # List all subscriptions to verify access
+        echo "Available subscriptions:"
+        az account list --query "[].{name:name, id:id}" -o table
+        
+        # Set subscription explicitly
+        echo "Setting subscription to: $ARM_SUBSCRIPTION_ID"
+        az account set --subscription "$ARM_SUBSCRIPTION_ID"
+        
+        # Verify subscription is set
+        echo "Verifying current subscription:"
+        az account show
         
         # Create resource group
         echo "Creating resource group: ${{ inputs.terraform_st_resource_group }}"
@@ -111,22 +125,21 @@ jobs:
           --location ${{ inputs.terraform_st_location }} \
           --output json || echo "Resource group may already exist"
         
-        # Create storage account
+        # Create storage account with full path
         echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
         az storage account create \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
           --name ${{ inputs.terraform_st_storage_account }} \
+          --resource-group ${{ inputs.terraform_st_resource_group }} \
+          --location ${{ inputs.terraform_st_location }} \
           --sku Standard_LRS \
           --encryption-services blob \
-          --location ${{ inputs.terraform_st_location }} \
-          --output json || echo "Storage account may already exist"
+          --output json
         
-        # Wait for storage account to be ready
-        echo "Waiting for storage account to be ready..."
+        # Check if storage account was created
+        echo "Checking storage account status..."
         az storage account show \
           --name ${{ inputs.terraform_st_storage_account }} \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
-          --query "provisioningState" || true
+          --resource-group ${{ inputs.terraform_st_resource_group }}
         
         # Get storage account key
         echo "Getting storage account key..."
@@ -141,7 +154,7 @@ jobs:
           --name ${{ inputs.terraform_st_container_name }} \
           --account-name ${{ inputs.terraform_st_storage_account }} \
           --account-key "$STORAGE_KEY" \
-          --output json || echo "Container may already exist"
+          --output json
 
     - name: Terraform Init
       working-directory: ${{ inputs.terraform_workingdir }}
