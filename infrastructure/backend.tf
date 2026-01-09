@@ -1,30 +1,24 @@
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 2.0"
-    }
-  }
-}
-
-provider "azurerm" {
-  features {}
-}
+# Backend infrastructure resources
+# These resources create the storage account for Terraform state
 
 variable "terraform_st_resource_group" {
   type = string
+  description = "Resource group for Terraform state storage"
 }
 
 variable "terraform_st_location" {
   type = string
+  description = "Location for Terraform state storage"
 }
 
 variable "terraform_st_storage_account" {
   type = string
+  description = "Storage account name for Terraform state"
 }
 
 variable "terraform_st_container_name" {
   type = string
+  description = "Container name for Terraform state"
 }
 
 # Create Resource Group
