@@ -100,6 +100,7 @@ jobs:
         az group create \
           --name ${{ inputs.terraform_st_resource_group }} \
           --location ${{ inputs.terraform_st_location }} \
+          --subscription "${{ secrets.subscriptionId }}" \
           --output json
         
         # Create storage account
@@ -109,6 +110,7 @@ jobs:
           --name ${{ inputs.terraform_st_storage_account }} \
           --sku Standard_LRS \
           --encryption-services blob \
+          --subscription "${{ secrets.subscriptionId }}" \
           --output json
         
         # Create container
@@ -117,6 +119,7 @@ jobs:
           --name ${{ inputs.terraform_st_container_name }} \
           --account-name ${{ inputs.terraform_st_storage_account }} \
           --auth-mode login \
+          --subscription "${{ secrets.subscriptionId }}" \
           --output json
 
     - name: Terraform Init
