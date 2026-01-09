@@ -86,6 +86,11 @@ jobs:
       with:
         creds: ${{ secrets.azure_creds }}
 
+    - name: Set Azure Subscription
+      run: |
+        az account set --subscription ${{ secrets.subscriptionId }}
+        az account show
+
     - name: Create Terraform State Storage
       run: |
         # Create resource group if it doesn't exist
