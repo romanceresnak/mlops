@@ -139,7 +139,7 @@ jobs:
           -var="terraform_st_container_name=${{ inputs.terraform_st_container_name }}" \
           -var="prefix=${{ inputs.namespace }}" \
           -var="postfix=${{ inputs.postfix }}" \
-          -var="env=${{ inputs.environment }}" \
+          -var="environment=${{ inputs.environment }}" \
           -var="location=${{ inputs.location }}" \
           -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
           -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
