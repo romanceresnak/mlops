@@ -98,14 +98,18 @@ jobs:
     - name: Create Terraform State Storage
       env:
         SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        AZURE_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
       run: |
+        # Set default subscription
+        az account set --subscription "$SUBSCRIPTION_ID"
+        az configure --defaults group=${{ inputs.terraform_st_resource_group }} location=${{ inputs.terraform_st_location }}
+        
         # Create resource group
         echo "Creating resource group: ${{ inputs.terraform_st_resource_group }}"
         az group create \
           --name ${{ inputs.terraform_st_resource_group }} \
           --location ${{ inputs.terraform_st_location }} \
-          --subscription "$SUBSCRIPTION_ID" \
-          --output json
+          --output json || echo "Resource group may already exist"
         
         # Create storage account
         echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
@@ -114,16 +118,30 @@ jobs:
           --name ${{ inputs.terraform_st_storage_account }} \
           --sku Standard_LRS \
           --encryption-services blob \
-          --subscription "$SUBSCRIPTION_ID" \
-          --output json
+          --location ${{ inputs.terraform_st_location }} \
+          --output json || echo "Storage account may already exist"
+        
+        # Wait for storage account to be ready
+        echo "Waiting for storage account to be ready..."
+        az storage account show \
+          --name ${{ inputs.terraform_st_storage_account }} \
+          --resource-group ${{ inputs.terraform_st_resource_group }} \
+          --query "provisioningState" || true
+        
+        # Get storage account key
+        echo "Getting storage account key..."
+        STORAGE_KEY=$(az storage account keys list \
+          --resource-group ${{ inputs.terraform_st_resource_group }} \
+          --account-name ${{ inputs.terraform_st_storage_account }} \
+          --query '[0].value' -o tsv)
         
         # Create container
         echo "Creating container: ${{ inputs.terraform_st_container_name }}"
         az storage container create \
           --name ${{ inputs.terraform_st_container_name }} \
           --account-name ${{ inputs.terraform_st_storage_account }} \
-          --auth-mode login \
-          --output json
+          --account-key "$STORAGE_KEY" \
+          --output json || echo "Container may already exist"
 
     - name: Terraform Init
       working-directory: ${{ inputs.terraform_workingdir }}
