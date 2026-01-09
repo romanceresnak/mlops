@@ -125,11 +125,55 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
 
-    - name: Import or Refresh State
+    - name: Clean Orphaned Resources
+      if: inputs.TFAction == 'apply'
+      run: |
+        echo "Cleaning up orphaned resources..."
+        
+        # Key Vault
+        KV_NAME="kv-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        # Check if Key Vault exists
+        if az keyvault show --name "$KV_NAME" &>/dev/null; then
+          echo "Found active Key Vault, checking if it's in our state..."
+          # Try to import it or delete it
+          cd ${{ inputs.terraform_workingdir }}
+          if ! terraform state show module.key_vault.azurerm_key_vault.kv &>/dev/null; then
+            echo "Key Vault exists but not in state, removing it..."
+            az keyvault delete --name "$KV_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+            sleep 30
+            az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
+          fi
+        fi
+        
+        # Check for soft-deleted Key Vault
+        if az keyvault show-deleted --name "$KV_NAME" --location "${{ inputs.location }}" &>/dev/null; then
+          echo "Purging soft-deleted Key Vault..."
+          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
+        fi
+        
+        # Storage Account
+        ST_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
+        if az storage account show --name "$ST_NAME" &>/dev/null; then
+          echo "Found Storage Account, checking if it's in our state..."
+          cd ${{ inputs.terraform_workingdir }}
+          if ! terraform state show module.storage_account_aml.azurerm_storage_account.st &>/dev/null; then
+            echo "Storage Account exists but not in state, removing it..."
+            az storage account delete --name "$ST_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}" --yes
+          fi
+        fi
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
+      continue-on-error: true
+
+    - name: Terraform Refresh
       if: inputs.TFAction == 'apply'
       working-directory: ${{ inputs.terraform_workingdir }}
       run: |
-        # Try to refresh state first
+        # Refresh state to sync with actual resources
         terraform refresh \
           -var="location=${{ inputs.location }}" \
           -var="prefix=${{ inputs.namespace }}" \
@@ -167,6 +211,24 @@ jobs:
       working-directory: ${{ inputs.terraform_workingdir }}
       run: |
         terraform apply -auto-approve -lock=false \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="environment=${{ inputs.environment }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
+          -var="client_secret=${{ secrets.clientSecret }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
+
+    - name: Terraform Destroy
+      if: inputs.TFAction == 'destroy'
+      working-directory: ${{ inputs.terraform_workingdir }}
+      run: |
+        terraform destroy -auto-approve -lock=false \
           -var="location=${{ inputs.location }}" \
           -var="prefix=${{ inputs.namespace }}" \
           -var="postfix=${{ inputs.postfix }}" \
