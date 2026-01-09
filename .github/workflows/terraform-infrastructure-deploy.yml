@@ -95,66 +95,30 @@ jobs:
         echo "Current subscription:"
         az account show
 
-    - name: Create Terraform State Storage
+    - name: Create Backend Infrastructure with Terraform
+      working-directory: ${{ inputs.terraform_workingdir }}
       env:
         ARM_CLIENT_ID: ${{ secrets.clientId }}
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
       run: |
-        # Debug - show current account info
-        echo "Current Azure account:"
-        az account show
+        echo "Creating backend infrastructure with Terraform..."
         
-        # List all subscriptions to verify access
-        echo "Available subscriptions:"
-        az account list --query "[].{name:name, id:id}" -o table
+        # Initialize Terraform without backend (local state)
+        terraform init -backend=false
         
-        # Set subscription explicitly
-        echo "Setting subscription to: $ARM_SUBSCRIPTION_ID"
-        az account set --subscription "$ARM_SUBSCRIPTION_ID"
+        # Apply backend.tf to create storage account
+        terraform apply -auto-approve \
+          -target=azurerm_resource_group.tfstate \
+          -target=azurerm_storage_account.tfstate \
+          -target=azurerm_storage_container.tfstate \
+          -var="terraform_st_resource_group=${{ inputs.terraform_st_resource_group }}" \
+          -var="terraform_st_location=${{ inputs.terraform_st_location }}" \
+          -var="terraform_st_storage_account=${{ inputs.terraform_st_storage_account }}" \
+          -var="terraform_st_container_name=${{ inputs.terraform_st_container_name }}"
         
-        # Verify subscription is set
-        echo "Verifying current subscription:"
-        az account show
-        
-        # Create resource group
-        echo "Creating resource group: ${{ inputs.terraform_st_resource_group }}"
-        az group create \
-          --name ${{ inputs.terraform_st_resource_group }} \
-          --location ${{ inputs.terraform_st_location }} \
-          --output json || echo "Resource group may already exist"
-        
-        # Create storage account with full path
-        echo "Creating storage account: ${{ inputs.terraform_st_storage_account }}"
-        az storage account create \
-          --name ${{ inputs.terraform_st_storage_account }} \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
-          --location ${{ inputs.terraform_st_location }} \
-          --sku Standard_LRS \
-          --encryption-services blob \
-          --output json
-        
-        # Check if storage account was created
-        echo "Checking storage account status..."
-        az storage account show \
-          --name ${{ inputs.terraform_st_storage_account }} \
-          --resource-group ${{ inputs.terraform_st_resource_group }}
-        
-        # Get storage account key
-        echo "Getting storage account key..."
-        STORAGE_KEY=$(az storage account keys list \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
-          --account-name ${{ inputs.terraform_st_storage_account }} \
-          --query '[0].value' -o tsv)
-        
-        # Create container
-        echo "Creating container: ${{ inputs.terraform_st_container_name }}"
-        az storage container create \
-          --name ${{ inputs.terraform_st_container_name }} \
-          --account-name ${{ inputs.terraform_st_storage_account }} \
-          --account-key "$STORAGE_KEY" \
-          --output json
+        echo "Backend infrastructure created successfully"
 
     - name: Terraform Init
       working-directory: ${{ inputs.terraform_workingdir }}
