@@ -179,6 +179,18 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
         ARM_TENANT_ID: ${{ secrets.tenantId }}
+    
+    - name: Force Unlock State (if needed)
+      if: failure()
+      working-directory: ${{ inputs.terraform_workingdir }}
+      run: |
+        echo "Attempting to force unlock state..."
+        terraform force-unlock -force 4a417e75-dc4c-1ea9-abd9-17d0f9e9515e || true
+      env:
+        ARM_CLIENT_ID: ${{ secrets.clientId }}
+        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.tenantId }}
 
     - name: Terraform Plan
       if: inputs.TFAction == 'plan'
@@ -206,7 +218,7 @@ jobs:
           -var="location=${{ inputs.location }}" \
           -var="prefix=${{ inputs.namespace }}" \
           -var="postfix=${{ inputs.postfix }}" \
-          -var="env=${{ inputs.environment }}" \
+          -var="environment=${{ inputs.environment }}" \
           -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
           -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
           -var="client_secret=${{ secrets.clientSecret }}"
