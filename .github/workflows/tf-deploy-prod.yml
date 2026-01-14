@@ -9,9 +9,9 @@ jobs:
     with:
       TFAction: 'apply'
       dply_environment: 'prod'  
-      location: 'westus'
+      location: 'westeurope'
       namespace: 'mlopslite'
-      postfix: 'ao04'
+      postfix: 'rc'
       environment: 'prod'
       enable_aml_computecluster: true
       enable_monitoring: false
@@ -22,7 +22,7 @@ jobs:
       terraform_st_resource_group: 'my-tf-state-rg'
       terraform_st_container_name: 'default'
       terraform_st_key: 'mlops-tab'
-      terraform_plan_location: 'westus'
+      terraform_plan_location: 'westeurope'
       terraform_plan_vnet: "TBD"
     secrets:
       azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
