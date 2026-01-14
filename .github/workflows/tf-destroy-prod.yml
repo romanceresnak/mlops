@@ -19,7 +19,7 @@ jobs:
       terraform_version: '1.5.7'
       terraform_workingdir: './infrastructure'
       terraform_st_location: 'westus'
-      terraform_st_resource_group: 'rg-tfstate'
+      terraform_st_resource_group: 'my-tf-state-rg'
       terraform_st_storage_account: 'sttfstateao04'
       terraform_st_container_name: 'tfstate'
       terraform_st_key: 'prod.terraform.tfstate'
