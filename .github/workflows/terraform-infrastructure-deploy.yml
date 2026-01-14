@@ -46,7 +46,7 @@ on:
       backend_container:
         required: false
         type: string
-        default: 'tfstate'
+        default: 'default'
       backend_key:
         required: true
         type: string

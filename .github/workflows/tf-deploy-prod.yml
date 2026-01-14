@@ -16,7 +16,7 @@ jobs:
       enable_monitoring: false
       backend_resource_group: 'my-tf-state-rg'
       backend_storage_account: 'sttfstateao04'
-      backend_container: 'tfstate'
+      backend_container: 'default'
       backend_key: 'mlops-prod.tfstate'
     secrets:
       azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
