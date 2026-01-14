@@ -17,7 +17,7 @@ jobs:
       backend_resource_group: 'my-tf-state-rg'
       backend_storage_account: 'sttfstateao04'
       backend_container: 'default'
-      backend_key: 'mlops-prod.tfstate'
+      backend_key: 'mlops-tab'
     secrets:
       azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
       arm_client_id: ${{ secrets.ARM_CLIENT_ID }}
