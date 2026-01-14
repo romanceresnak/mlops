@@ -4,30 +4,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  destroy-infrastructure:
-    name: Destroy Infrastructure
+  destroy:
     uses: ./.github/workflows/terraform-infrastructure-deploy.yml
     with:
-      TFAction: 'destroy'
-      dply_environment: 'production'
-      location: 'westus'
-      namespace: 'mlopslite'
-      postfix: 'ao04'
+      action: 'destroy'
       environment: 'prod'
+      location: 'westeurope'
+      namespace: 'mlopslite'
+      postfix: 'rc'
       enable_aml_computecluster: true
       enable_monitoring: false
-      terraform_version: '1.5.7'
-      terraform_workingdir: './infrastructure'
-      terraform_st_location: 'westus'
-      terraform_st_resource_group: 'my-tf-state-rg'
-      terraform_st_storage_account: 'sttfstateao04'
-      terraform_st_container_name: 'tfstate'
-      terraform_st_key: 'prod.terraform.tfstate'
-      terraform_plan_location: 'westus'
-      terraform_plan_vnet: '10.0.0.0/16'
+      backend_resource_group: 'my-tf-state-rg'
+      backend_storage_account: 'sttfstateao04'
+      backend_container: 'tfstate'
+      backend_key: 'mlops-prod.tfstate'
     secrets:
       azure_creds: ${{ secrets.AZURE_CREDENTIALS }}
-      clientId: ${{ secrets.ARM_CLIENT_ID }}
-      clientSecret: ${{ secrets.ARM_CLIENT_SECRET }}
-      subscriptionId: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      tenantId: ${{ secrets.ARM_TENANT_ID }}
+      arm_client_id: ${{ secrets.ARM_CLIENT_ID }}
+      arm_client_secret: ${{ secrets.ARM_CLIENT_SECRET }}
+      arm_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      arm_tenant_id: ${{ secrets.ARM_TENANT_ID }}

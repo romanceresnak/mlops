@@ -1,24 +1,26 @@
 name: Terraform Infrastructure Deploy
 
-on: 
+on:
   workflow_call:
     inputs:
-      TFAction:
-        required: true
-        type: string
-      dply_environment:
-        required: true
-        type: string
-      location:
-        required: true
-        type: string
-      namespace:
-        required: true
-        type: string
-      postfix:
+      action:
+        description: 'Terraform action: plan, apply, or destroy'
         required: true
         type: string
       environment:
+        description: 'Deployment environment (e.g., prod, dev)'
+        required: true
+        type: string
+      location:
+        description: 'Azure region for all resources'
+        required: true
+        type: string
+      namespace:
+        description: 'Project namespace/prefix for resource naming'
+        required: true
+        type: string
+      postfix:
+        description: 'Unique postfix for resource naming'
         required: true
         type: string
       enable_aml_computecluster:
@@ -28,49 +30,56 @@ on:
         required: true
         type: boolean
       terraform_version:
+        required: false
+        type: string
+        default: '1.5.0'
+      working_directory:
+        required: false
+        type: string
+        default: './infrastructure'
+      backend_resource_group:
         required: true
         type: string
-      terraform_workingdir:
+      backend_storage_account:
         required: true
         type: string
-      terraform_st_location:
-        required: true
+      backend_container:
+        required: false
         type: string
-      terraform_st_storage_account:
-        required: true
-        type: string
-      terraform_st_resource_group:
-        required: true
-        type: string
-      terraform_st_container_name:
-        required: true
-        type: string
-      terraform_st_key:
-        required: true
-        type: string
-      terraform_plan_location:
-        required: true
-        type: string
-      terraform_plan_vnet:
+        default: 'tfstate'
+      backend_key:
         required: true
         type: string
     secrets:
       azure_creds:
         required: true
-      clientId:
+      arm_client_id:
         required: true
-      clientSecret:
+      arm_client_secret:
         required: true
-      subscriptionId:
+      arm_subscription_id:
         required: true
-      tenantId:
+      arm_tenant_id:
         required: true
 
+env:
+  ARM_CLIENT_ID: ${{ secrets.arm_client_id }}
+  ARM_CLIENT_SECRET: ${{ secrets.arm_client_secret }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.arm_subscription_id }}
+  ARM_TENANT_ID: ${{ secrets.arm_tenant_id }}
+  TF_VAR_location: ${{ inputs.location }}
+  TF_VAR_prefix: ${{ inputs.namespace }}
+  TF_VAR_postfix: ${{ inputs.postfix }}
+  TF_VAR_environment: ${{ inputs.environment }}
+  TF_VAR_enable_aml_computecluster: ${{ inputs.enable_aml_computecluster }}
+  TF_VAR_enable_monitoring: ${{ inputs.enable_monitoring }}
+  TF_VAR_client_secret: ${{ secrets.arm_client_secret }}
+
 jobs:
-  deploy-terraform:
+  terraform:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.dply_environment }}
-    
+    environment: ${{ inputs.environment }}
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -80,144 +89,61 @@ jobs:
       with:
         terraform_version: ${{ inputs.terraform_version }}
 
+    - name: Cache Terraform providers
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          ${{ inputs.working_directory }}/.terraform
+        key: terraform-${{ runner.os }}-${{ hashFiles('**/*.tf') }}
+        restore-keys: terraform-${{ runner.os }}-
+
     - name: Azure Login
       uses: azure/login@v2
       with:
         creds: ${{ secrets.azure_creds }}
 
-    - name: Setup Backend Storage
-      run: |
-        # Create resource group if it doesn't exist
-        az group create \
-          --name ${{ inputs.terraform_st_resource_group }} \
-          --location ${{ inputs.terraform_st_location }} || true
-        
-        # Create storage account if it doesn't exist
-        az storage account create \
-          --name ${{ inputs.terraform_st_storage_account }} \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
-          --location ${{ inputs.terraform_st_location }} \
-          --sku Standard_LRS \
-          --allow-blob-public-access false || true
-        
-        # Get storage key and create container
-        STORAGE_KEY=$(az storage account keys list \
-          --resource-group ${{ inputs.terraform_st_resource_group }} \
-          --account-name ${{ inputs.terraform_st_storage_account }} \
-          --query '[0].value' -o tsv)
-        
-        az storage container create \
-          --name ${{ inputs.terraform_st_container_name }} \
-          --account-name ${{ inputs.terraform_st_storage_account }} \
-          --account-key "$STORAGE_KEY" || true
-
     - name: Terraform Init
-      working-directory: ${{ inputs.terraform_workingdir }}
+      working-directory: ${{ inputs.working_directory }}
       run: |
         terraform init \
-          -backend-config="resource_group_name=${{ inputs.terraform_st_resource_group }}" \
-          -backend-config="storage_account_name=${{ inputs.terraform_st_storage_account }}" \
-          -backend-config="container_name=${{ inputs.terraform_st_container_name }}" \
-          -backend-config="key=${{ inputs.terraform_st_key }}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
+          -backend-config="resource_group_name=${{ inputs.backend_resource_group }}" \
+          -backend-config="storage_account_name=${{ inputs.backend_storage_account }}" \
+          -backend-config="container_name=${{ inputs.backend_container }}" \
+          -backend-config="key=${{ inputs.backend_key }}"
 
-    - name: Destroy Existing Resources Before Apply
-      if: inputs.TFAction == 'apply'
-      working-directory: ${{ inputs.terraform_workingdir }}
-      run: |
-        echo "Destroying existing resources to clean up state..."
-        terraform destroy -auto-approve -lock=false \
-          -var="location=${{ inputs.location }}" \
-          -var="prefix=${{ inputs.namespace }}" \
-          -var="postfix=${{ inputs.postfix }}" \
-          -var="environment=${{ inputs.environment }}" \
-          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
-          -var="client_secret=${{ secrets.clientSecret }}" || true
-        
-        # Clean up any remaining orphaned resources
-        KV_NAME="kv-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
-        ST_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
-        
-        # Force delete Key Vault if it still exists
-        if az keyvault show --name "$KV_NAME" &>/dev/null; then
-          echo "Force deleting Key Vault..."
-          az keyvault delete --name "$KV_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}" || true
-          sleep 30
-        fi
-        
-        # Purge soft-deleted Key Vault
-        if az keyvault show-deleted --name "$KV_NAME" --location "${{ inputs.location }}" &>/dev/null; then
-          echo "Purging soft-deleted Key Vault..."
-          az keyvault purge --name "$KV_NAME" --location "${{ inputs.location }}"
-        fi
-        
-        # Force delete Storage Account if it still exists
-        if az storage account show --name "$ST_NAME" &>/dev/null; then
-          echo "Force deleting Storage Account..."
-          az storage account delete --name "$ST_NAME" --resource-group "rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}" --yes || true
-        fi
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
+    - name: Terraform Format Check
+      working-directory: ${{ inputs.working_directory }}
+      run: terraform fmt -check -recursive
       continue-on-error: true
 
+    - name: Terraform Validate
+      working-directory: ${{ inputs.working_directory }}
+      run: terraform validate
+
     - name: Terraform Plan
-      if: inputs.TFAction == 'plan'
-      working-directory: ${{ inputs.terraform_workingdir }}
+      if: inputs.action == 'plan' || inputs.action == 'apply'
+      working-directory: ${{ inputs.working_directory }}
+      id: plan
       run: |
-        terraform plan \
-          -var="location=${{ inputs.location }}" \
-          -var="prefix=${{ inputs.namespace }}" \
-          -var="postfix=${{ inputs.postfix }}" \
-          -var="environment=${{ inputs.environment }}" \
-          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
-          -var="client_secret=${{ secrets.clientSecret }}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
+        terraform plan -out=tfplan -no-color 2>&1 | tee plan_output.txt
+        echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        tail -50 plan_output.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Terraform Apply
-      if: inputs.TFAction == 'apply'
-      working-directory: ${{ inputs.terraform_workingdir }}
+      if: inputs.action == 'apply'
+      working-directory: ${{ inputs.working_directory }}
       run: |
-        terraform apply -auto-approve -lock=false \
-          -var="location=${{ inputs.location }}" \
-          -var="prefix=${{ inputs.namespace }}" \
-          -var="postfix=${{ inputs.postfix }}" \
-          -var="environment=${{ inputs.environment }}" \
-          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
-          -var="client_secret=${{ secrets.clientSecret }}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
+        terraform apply -auto-approve tfplan
+        echo "## Terraform Apply Complete" >> $GITHUB_STEP_SUMMARY
+        echo "Resources deployed to **${{ inputs.location }}** in resource group **rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
 
     - name: Terraform Destroy
-      if: inputs.TFAction == 'destroy'
-      working-directory: ${{ inputs.terraform_workingdir }}
+      if: inputs.action == 'destroy'
+      working-directory: ${{ inputs.working_directory }}
       run: |
-        terraform destroy -auto-approve -lock=false \
-          -var="location=${{ inputs.location }}" \
-          -var="prefix=${{ inputs.namespace }}" \
-          -var="postfix=${{ inputs.postfix }}" \
-          -var="environment=${{ inputs.environment }}" \
-          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-          -var="enable_monitoring=${{ inputs.enable_monitoring }}" \
-          -var="client_secret=${{ secrets.clientSecret }}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
+        terraform destroy -auto-approve
+        echo "## Terraform Destroy Complete" >> $GITHUB_STEP_SUMMARY
+        echo "All resources in **rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}** have been destroyed" >> $GITHUB_STEP_SUMMARY
